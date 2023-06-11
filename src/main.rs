@@ -1,6 +1,7 @@
 #![allow(unused)]
 
 use clap::Parser;
+use inquire::CustomUserError;
 use inquire::{
     formatter::MultiOptionFormatter, list_option::ListOption, validator::Validation, MultiSelect,
 };
@@ -14,6 +15,26 @@ struct Cli {
 
 fn main() {
     let args = Cli::parse();
+
+    let formatter: MultiOptionFormatter<&str> =
+        &|a| format!("{} different profiles selected", a.len());
+
+    let ans = MultiSelect::new(
+        "Select the spring profiles you wish to select",
+        get_profiles(args).profiles,
+    )
+    .with_formatter(formatter)
+    .with_vim_mode(true)
+    .with_keep_filter(true)
+    .prompt();
+
+    match ans {
+        Ok(_) => println!("Your profiles are:\n{}", ans.unwrap().join(", ")),
+        Err(_) => println!("Failed to process"),
+    }
+}
+
+fn get_profiles<'a>(args: Cli) -> ProfileParser<'a> {
     let content = filename_to_string(&args.path.to_str().unwrap())
         .unwrap()
         .replace("`", "")
@@ -23,8 +44,24 @@ fn main() {
         .lines()
         .flat_map(|line| line.split(",").collect::<Vec<_>>())
         .collect();
-    for profile in profiles {
-        println!("{}", profile);
+    return ProfileParser {
+        profiles: &profiles,
+    };
+}
+
+struct ProfileParser<'a> {
+    profiles: &'a Vec<&'a str>,
+}
+
+impl<'a> ProfileParser<'a> {
+    fn fitler_profiles(&self, val: &'a str) -> Result<Vec<String>, CustomUserError> {
+        let input = val.to_lowercase();
+        Ok(self
+            .profiles
+            .iter()
+            .filter(|s| s.to_lowercase().contains(&input))
+            .map(|s| String::from(*s))
+            .collect())
     }
 }
 
