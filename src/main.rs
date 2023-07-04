@@ -1,11 +1,15 @@
 #![allow(unused)]
 
 use clap::Parser;
+use clap_repl::ClapEditor;
+use console::style;
 use inquire::CustomUserError;
 use inquire::{
     formatter::MultiOptionFormatter, list_option::ListOption, validator::Validation, MultiSelect,
 };
+use rustyline::DefaultEditor;
 use std::fs::File;
+use std::io::Write;
 use std::io::{self, Read};
 
 #[derive(Parser)]
@@ -13,20 +17,40 @@ struct Cli {
     path: std::path::PathBuf,
 }
 
+#[derive(Debug, Parser)]
+#[command(name = "")]
+enum HermesCommands {
+    Select,
+    Quit,
+}
+
 fn main() {
+    let mut rl = ClapEditor::<HermesCommands>::new();
+    loop {
+        let Some(command) = rl.read_command() else {
+            continue;
+        };
+        match command {
+            HermesCommands::Select => {
+                println!("We are selecting a command");
+            }
+            HermesCommands::Quit => {
+                break;
+            }
+        }
+    }
+
     let args = Cli::parse();
 
-    let formatter: MultiOptionFormatter<&str> =
+    let formatter: MultiOptionFormatter<String> =
         &|a| format!("{} different profiles selected", a.len());
 
-    let ans = MultiSelect::new(
-        "Select the spring profiles you wish to select",
-        get_profiles(args).profiles,
-    )
-    .with_formatter(formatter)
-    .with_vim_mode(true)
-    .with_keep_filter(true)
-    .prompt();
+    let profiles = get_profiles(args);
+    let ans = MultiSelect::new("Select the spring profiles you wish to select", profiles)
+        .with_formatter(formatter)
+        .with_vim_mode(true)
+        .with_keep_filter(true)
+        .prompt();
 
     match ans {
         Ok(_) => println!("Your profiles are:\n{}", ans.unwrap().join(", ")),
@@ -34,7 +58,7 @@ fn main() {
     }
 }
 
-fn get_profiles<'a>(args: Cli) -> ProfileParser<'a> {
+fn get_profiles(args: Cli) -> Vec<String> {
     let content = filename_to_string(&args.path.to_str().unwrap())
         .unwrap()
         .replace("`", "")
@@ -44,25 +68,8 @@ fn get_profiles<'a>(args: Cli) -> ProfileParser<'a> {
         .lines()
         .flat_map(|line| line.split(",").collect::<Vec<_>>())
         .collect();
-    return ProfileParser {
-        profiles: &profiles,
-    };
-}
-
-struct ProfileParser<'a> {
-    profiles: &'a Vec<&'a str>,
-}
-
-impl<'a> ProfileParser<'a> {
-    fn fitler_profiles(&self, val: &'a str) -> Result<Vec<String>, CustomUserError> {
-        let input = val.to_lowercase();
-        Ok(self
-            .profiles
-            .iter()
-            .filter(|s| s.to_lowercase().contains(&input))
-            .map(|s| String::from(*s))
-            .collect())
-    }
+    let profiles_list = profiles.into_iter().map(String::from).collect::<Vec<_>>();
+    return profiles_list;
 }
 
 fn filename_to_string(s: &str) -> io::Result<String> {
