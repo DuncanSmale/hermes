@@ -66,7 +66,7 @@ impl<C: Parser> ClapEditor<C> {
     }
 
     pub fn read_command(&mut self) -> Option<C> {
-        let line = match self.rl.readline(&style(">> ").cyan().bright().to_string()) {
+        let line = match self.rl.readline(">> ") {
             Ok(x) => x,
             Err(e) => match e {
                 rustyline::error::ReadlineError::Eof
