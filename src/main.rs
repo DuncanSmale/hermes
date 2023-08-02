@@ -3,13 +3,16 @@
 use clap::Parser;
 use clap_repl::ClapEditor;
 use console::style;
-use inquire::CustomUserError;
+use inquire::formatter::OptionFormatter;
 use inquire::{
     formatter::MultiOptionFormatter, list_option::ListOption, validator::Validation, MultiSelect,
 };
+use inquire::{CustomUserError, Select};
 use rustyline::DefaultEditor;
+use serde::de::Error;
 use serde::{Deserialize, Serialize};
-use serde_json::Result;
+use serde_json::{Map, Result};
+use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::fs::{self, File};
 use std::io::Write;
@@ -17,18 +20,19 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::ptr::null;
 
-#[derive(Parser)]
-struct Cli {
-    path: std::path::PathBuf,
-}
-
 #[derive(Debug, Parser)]
 #[command(name = "")]
 enum HermesCommands {
     Options { profiles_string: String },
     Select,
     Quit,
-    Project { project_name: String },
+    Project,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Settings {
+    selected_project: String,
+    projects: HashMap<String, Project>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -38,50 +42,76 @@ struct Project {
 }
 
 fn main() -> Result<()> {
+    let mut settings: Settings = read_settings_from_file().unwrap();
     let mut rl = ClapEditor::<HermesCommands>::new();
-    let mut profiles: &mut Vec<String> = &mut vec![];
-    let mut project: String = String::new();
-    let mut selected_project: Project = Project {
-        previously_selected: vec![],
-        profiles: vec![],
-    };
+    let mut selected_project: String = settings.selected_project.clone();
     std::fs::create_dir_all("projectconfigs");
     loop {
         let Some(command) = rl.read_command() else {
             continue;
         };
         match command {
-            HermesCommands::Project { project_name } => {
-                project = project_name.clone();
-                selected_project = read_project_from_file(&project)?;
+            HermesCommands::Project => {
+                settings.selected_project = present_project_selection(&settings).unwrap();
             }
-            HermesCommands::Select => match project.as_str() {
+            HermesCommands::Select => match settings.selected_project.as_str() {
                 "" => println!("You do not have a project selected. Please select a project by using the project {{project-name}} command"),
-                _ => present_profile_selection(&selected_project),
+                _ => {
+                    let new_profile = present_profile_selection(&settings.projects.get(&settings.selected_project).unwrap()).unwrap();
+                    settings.projects.insert(selected_project.clone(), new_profile);
+                    save_settings(&settings);
+                },
             },
             HermesCommands::Quit => {
+                save_settings(&settings);
                 return Ok(());
             }
             HermesCommands::Options { profiles_string } => {
                 let mut string_copy: String = profiles_string.clone();
 
-                let profs: Vec<String> = string_copy
+                let mut profs: Vec<String> = string_copy
                     .split(",")
                     .into_iter()
                     .map(String::from)
                     .collect();
 
-                profiles.clear();
-                profiles.extend(profs);
-                selected_project.profiles = profiles.clone();
+                let mut project: &mut Project = &mut settings.projects.get_mut(&selected_project).unwrap();
+                project.profiles.clear();
+                project.profiles.extend(profs);
+                project.previously_selected.clear();
                 println!("Saving profiles to project");
-                save_project(&project, &selected_project);
             }
         }
     }
 }
 
-fn present_profile_selection(selected_project: &Project) {
+fn present_project_selection(settings: &Settings) -> Result<String> {
+    let formatter: OptionFormatter<String> = &|a| format!("You have chosen project: {}", a);
+    let all_projects: &mut Vec<&String> = &mut settings.projects.keys().clone().collect();
+    all_projects.push(&String::from("New Profile"));
+    let all_copy: &Vec<String> = &all_projects
+        .iter()
+        .clone()
+        .enumerate()
+        .map(|(index, item)| String::from(*item))
+        .collect();
+    let ans = Select::new("Please select the profile you wish to select", *all_copy)
+        .with_formatter(formatter)
+        .with_vim_mode(true)
+        .prompt();
+    match ans {
+        Ok(_) => {
+            let selected_project = ans.unwrap();
+            Ok(String::from(selected_project))
+        }
+        Err(_) => {
+            println!("Failed to process");
+            Err(Error::custom("Could not process selection for project"))
+        }
+    }
+}
+
+fn present_profile_selection(selected_project: &Project) -> Result<Project> {
     let formatter: MultiOptionFormatter<String> =
         &|a| format!("{} different profiles selected", a.len());
 
@@ -90,7 +120,7 @@ fn present_profile_selection(selected_project: &Project) {
 
     let ans = MultiSelect::new(
         "Select the spring profiles you wish to select",
-        copied_profs,
+        copied_profs.clone(),
     )
     .with_default(selected_project.previously_selected.as_ref())
     .with_formatter(formatter)
@@ -101,16 +131,27 @@ fn present_profile_selection(selected_project: &Project) {
     match ans {
         Ok(_) => {
             let selected_profiles = ans.unwrap();
+            let indexes = selected_profiles
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| selected_project.profiles.contains(&r))
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
             println!("Your profiles are:\n{}", selected_profiles.join(", "));
+            Ok(Project {
+                profiles: copied_profs,
+                previously_selected: indexes,
+            })
         }
-        Err(_) => println!("Failed to process"),
+        Err(_) => {
+            println!("Failed to process");
+            Err(Error::custom("Could not process selection for profiles"))
+        }
     }
 }
 
-fn read_project_from_file(project: &String) -> Result<Project> {
-    let project_name = String::from(project);
-    let project_path = Path::new("projectconfigs").join(project_name + ".json");
-    dbg!(&project_path);
+fn read_settings_from_file() -> Result<Settings> {
+    let project_path = Path::new("projectconfigs").join("settings.json");
     let mut buffer = String::new();
     if project_path.exists() {
         buffer = std::fs::read_to_string(&project_path)
@@ -124,46 +165,26 @@ fn read_project_from_file(project: &String) -> Result<Project> {
     }
     match buffer.as_str() {
         "" => {
-            println!("This is a new project, creating a new file");
-            Ok(Project {
-                profiles: vec![],
-                previously_selected: vec![],
-            })
+            println!("No settings found, creating a new settings file");
+            let new_settings = Settings {
+                selected_project: String::new(),
+                projects: HashMap::new(),
+            };
+            save_settings(&new_settings);
+            Ok(new_settings)
         }
         _ => {
-            let selected_project = serde_json::from_str(buffer.as_str())?;
-            Ok(selected_project)
+            let settings = serde_json::from_str(buffer.as_str()).unwrap();
+            Ok(settings)
         }
     }
 }
 
-fn save_project(name: &String, project: &Project) -> Result<()> {
-    let project_name = String::from(name);
-    let project_path = Path::new("projectconfigs").join(project_name + ".json");
+fn save_settings(settings: &Settings) -> Result<()> {
+    let project_path = Path::new("projectconfigs").join("settings.json");
     let mut file = File::open(&project_path).expect("Failed to open file to save into");
-    dbg!(project);
-    let mut buffer = serde_json::to_string(&project)?;
+    dbg!(settings);
+    let mut buffer = serde_json::to_string(&settings)?;
     fs::write(project_path.to_str().unwrap(), buffer);
     Ok(())
-}
-
-fn get_profiles(args: Cli) -> Vec<String> {
-    let content = filename_to_string(&args.path.to_str().unwrap())
-        .unwrap()
-        .replace("`", "")
-        .replace(" ", "");
-    let mut profiles: Vec<&str> = content
-        .trim()
-        .lines()
-        .flat_map(|line| line.split(",").collect::<Vec<_>>())
-        .collect();
-    let profiles_list = profiles.into_iter().map(String::from).collect::<Vec<_>>();
-    return profiles_list;
-}
-
-fn filename_to_string(s: &str) -> io::Result<String> {
-    let mut file = File::open(s)?;
-    let mut s = String::new();
-    file.read_to_string(&mut s)?;
-    Ok(s)
 }
