@@ -29,6 +29,15 @@ enum HermesCommands {
     Project,
 }
 
+#[derive(Debug, Parser)]
+#[command(name = "")]
+enum ProjectCommands {
+    New { profile_name: String },
+    Select,
+    List,
+    Back,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 struct Settings {
     selected_project: String,
@@ -44,6 +53,7 @@ struct Project {
 fn main() -> Result<()> {
     let mut settings: Settings = read_settings_from_file().unwrap();
     let mut rl = ClapEditor::<HermesCommands>::new();
+    let mut pl = ClapEditor::<ProjectCommands>::new();
     let mut selected_project: String = settings.selected_project.clone();
     std::fs::create_dir_all("projectconfigs");
     loop {
@@ -52,7 +62,27 @@ fn main() -> Result<()> {
         };
         match command {
             HermesCommands::Project => {
-                settings.selected_project = present_project_selection(&settings).unwrap();
+                loop {
+                    let Some(project_command) = pl.read_command() else {
+                        continue;
+                    };
+                    println!("Project Options: New, Select");
+                    match project_command {
+                        ProjectCommands::New { profile_name } => {
+                            let new_project = create_new_project();
+                            settings.projects.insert(profile_name, new_project);
+                        }
+                        ProjectCommands::Select => {
+                            settings.selected_project = present_project_selection(&settings).unwrap();
+                        }
+                        ProjectCommands::Back => break,
+                        ProjectCommands::List => {
+                            let all_projects: Vec<String> = settings.projects.keys().into_iter().map(|item| item.to_string()).collect();
+                            let all_projects_string = all_projects.join("\n");
+                            println!("{}", all_projects_string);
+                        }
+                    }
+                }
             }
             HermesCommands::Select => match settings.selected_project.as_str() {
                 "" => println!("You do not have a project selected. Please select a project by using the project {{project-name}} command"),
@@ -87,15 +117,17 @@ fn main() -> Result<()> {
 
 fn present_project_selection(settings: &Settings) -> Result<String> {
     let formatter: OptionFormatter<String> = &|a| format!("You have chosen project: {}", a);
-    let all_projects: &mut Vec<&String> = &mut settings.projects.keys().clone().collect();
-    all_projects.push(&String::from("New Profile"));
-    let all_copy: &Vec<String> = &all_projects
-        .iter()
-        .clone()
-        .enumerate()
-        .map(|(index, item)| String::from(*item))
+    let all_projects: Vec<String> = settings
+        .projects
+        .keys()
+        .into_iter()
+        .map(|item| item.to_string())
         .collect();
-    let ans = Select::new("Please select the profile you wish to select", *all_copy)
+    if (all_projects.len() == 0) {
+        println!("No projects available, please create a new project");
+        return Ok(String::new());
+    }
+    let ans = Select::new("Please select the profile you wish to select", all_projects)
         .with_formatter(formatter)
         .with_vim_mode(true)
         .prompt();
@@ -108,6 +140,13 @@ fn present_project_selection(settings: &Settings) -> Result<String> {
             println!("Failed to process");
             Err(Error::custom("Could not process selection for project"))
         }
+    }
+}
+
+fn create_new_project() -> Project {
+    Project {
+        profiles: vec![],
+        previously_selected: vec![],
     }
 }
 
