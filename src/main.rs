@@ -39,6 +39,7 @@ fn main() -> Result<()> {
         match command {
             HermesCommands::Project => {
                 project::handle_project_commands(&mut settings);
+                selected_project = settings.selected_project.clone();
             }
             HermesCommands::Select => match settings.selected_project.as_str() {
                 "" => println!("{}", "You do not have a project selected. Please select a project by using the project {{project-name}} command".yellow()),
@@ -105,10 +106,11 @@ fn present_profile_selection(selected_project: &Project) -> Result<Project> {
     match ans {
         Ok(_) => {
             let selected_profiles = ans.unwrap();
-            let indexes = selected_profiles
+            let indexes = selected_project
+                .profiles
                 .iter()
                 .enumerate()
-                .filter(|(_, r)| selected_project.profiles.contains(&r))
+                .filter(|(_, r)| selected_profiles.contains(&r))
                 .map(|(index, _)| index)
                 .collect::<Vec<_>>();
             println!(
