@@ -50,7 +50,7 @@ pub fn read_settings_from_file() -> Result<Settings> {
 pub fn save_settings(settings: &Settings) -> Result<()> {
     let project_path = Path::new("projectconfigs").join("settings.json");
     let mut file = File::open(&project_path).expect("Failed to open file to save into");
-    dbg!(settings);
+    // dbg!(settings);
     let mut buffer = serde_json::to_string(&settings)?;
     fs::write(project_path.to_str().unwrap(), buffer);
     Ok(())

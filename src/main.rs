@@ -5,6 +5,7 @@ use clap_repl::ClapEditor;
 use colored::*;
 use serde_json::Result;
 use settings::{read_settings_from_file, save_settings};
+use std::fs::read_to_string;
 mod profiles;
 mod project;
 mod settings;
@@ -18,6 +19,9 @@ enum HermesCommands {
 }
 
 fn main() -> Result<()> {
+    let banner = read_to_string("banner.txt").unwrap();
+    println!("{}", banner.yellow());
+
     let mut settings: settings::Settings = read_settings_from_file().unwrap();
     let mut rl = ClapEditor::<HermesCommands>::new();
     let mut selected_project: String = settings.selected_project.clone();
