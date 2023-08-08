@@ -9,6 +9,7 @@ use inquire::{
 use serde::de::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::Result;
+use std::fmt;
 
 #[derive(Debug, Parser)]
 #[command(name = "")]
@@ -17,6 +18,11 @@ pub enum ProjectCommands {
     Select,
     List,
     Back,
+}
+impl fmt::Display for ProjectCommands {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 pub fn handle_project_commands(settings: &mut Settings) {
