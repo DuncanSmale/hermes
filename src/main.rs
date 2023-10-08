@@ -6,6 +6,8 @@ use colored::*;
 use serde_json::Result;
 use settings::{read_settings_from_file, save_settings};
 use std::fs::read_to_string;
+mod banner;
+mod bootstrap;
 mod profiles;
 mod project;
 mod settings;
@@ -19,7 +21,7 @@ enum HermesCommands {
 }
 
 fn main() -> Result<()> {
-    let banner = read_to_string("banner.txt").unwrap();
+    let banner = banner::get_banner();
     println!("{}", banner.yellow());
 
     let mut settings: settings::Settings = read_settings_from_file().unwrap();
